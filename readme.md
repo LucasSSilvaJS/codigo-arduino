@@ -116,3 +116,4 @@ O código interage com a API web através dos seguintes endpoints (assumindo `AP
 
 **Atenção:** O uso de `client.setInsecure()` desativa a verificação do certificado SSL/TLS. Em um ambiente de produção, é altamente recomendado implementar a validação de certificados para garantir a segurança da comunicação HTTPS.
 
+![Código arduino](codigo.png)
