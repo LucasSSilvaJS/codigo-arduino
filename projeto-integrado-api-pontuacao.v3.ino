@@ -9,7 +9,7 @@
 
 // ========================
 // ==== CONFIG WIFI =======
-const char* ssid = "SENAC-Mesh";
+const char* ssid = "Senac-Mesh";
 const char* password = "09080706";
 const String API_BASE = "https://projeto-bigdata.onrender.com";
 const String TOTEM_ID = "5e652a794087";
@@ -32,6 +32,21 @@ LiquidCrystal_I2C lcd(0x27,16,2);
 
 MFRC522 rfidSim(SS_PIN_SIM, RST_PIN_SIM);
 MFRC522 rfidNao(SS_PIN_NAO, RST_PIN_NAO);
+
+// ========================
+// ==== CONFIG LEDS =======
+// LEDs verdes (para voto "sim") 
+#define LED_VERDE_1 14
+#define LED_VERDE_2 27
+// LEDs vermelhos (para voto "não")
+#define LED_VERMELHO_1 2
+#define LED_VERMELHO_2 13
+
+// ========================
+// ==== CONFIG BUZZER =====
+#define BUZZER_PIN 32
+int tone1 = 1437;
+int tone2 = 1337;
 
 // ========================
 // ==== VARIAVEIS =========
@@ -112,6 +127,51 @@ void tratarErro(const String &estadoErro){
   mostrarMensagem("Erro em:", estadoErro);
   delay(2000);
   mostrarTelaInicial();
+}
+
+// ========================
+// ==== FUNÇÃO SOM URNA ===
+void somUrna() {
+  delay(300);
+  for (int i = 0; i < 5; i++) {
+    tone(BUZZER_PIN, tone2);
+    delay(90);
+    tone(BUZZER_PIN, tone1);
+    delay(90);
+  }
+  tone(BUZZER_PIN, tone2);
+  delay(120);
+  noTone(BUZZER_PIN);
+}
+
+// ========================
+// ==== SOM CONFIRMAÇÃO ===
+// LED + som juntos
+// ========================
+
+// Som e LED para confirmação "SIM"
+void somConfirmacaoSim() {
+  digitalWrite(LED_VERDE_1, HIGH);
+  digitalWrite(LED_VERDE_2, HIGH);
+  tone(BUZZER_PIN, tone1);
+  delay(700);
+  noTone(BUZZER_PIN);
+  digitalWrite(LED_VERDE_1, LOW);
+  digitalWrite(LED_VERDE_2, LOW);
+}
+
+// Som e LED para confirmação "NÃO"
+void somConfirmacaoNao() {
+  digitalWrite(LED_VERMELHO_1, HIGH);
+  digitalWrite(LED_VERMELHO_2, HIGH);
+  for (int i = 0; i < 2; i++) {
+    tone(BUZZER_PIN, tone2);
+    delay(300);
+    noTone(BUZZER_PIN);
+    delay(150);
+  }
+  digitalWrite(LED_VERMELHO_1, LOW);
+  digitalWrite(LED_VERMELHO_2, LOW);
 }
 
 // ========================
@@ -232,7 +292,7 @@ bool usuarioJaInteragiu(const String &vem_hash, const String &pergunta_id) {
   if(code != 200) {
     Serial.println("Erro verificar interacao HTTP: " + String(code));
     http.end();
-    return false; // Em caso de erro, assume que não interagiu
+    return false;
   }
 
   String payload = http.getString();
@@ -311,7 +371,6 @@ bool obterUltimaPergunta(){
   pergunta = doc["texto"].as<String>();
   pergunta_id = doc["pergunta_id"].as<String>();
 
-  // Inicializa rolagem
   perguntaRolar = limparParaLCD(pergunta) + "    ";
   indiceRolagem = 0;
   ultimaAtualizacao = millis();
@@ -343,7 +402,26 @@ void atualizarRolagem(){
 }
 
 // ========================
-// ==== SETUP ============
+// ==== LED CONTROLE ======
+void acenderLedVerde() {
+  digitalWrite(LED_VERDE_1, HIGH);
+  digitalWrite(LED_VERDE_2, HIGH);
+}
+
+void acenderLedVermelho() {
+  digitalWrite(LED_VERMELHO_1, HIGH);
+  digitalWrite(LED_VERMELHO_2, HIGH);
+}
+
+void apagarLeds() {
+  digitalWrite(LED_VERDE_1, LOW);
+  digitalWrite(LED_VERDE_2, LOW);
+  digitalWrite(LED_VERMELHO_1, LOW);
+  digitalWrite(LED_VERMELHO_2, LOW);
+}
+
+// ========================
+// ==== SETUP =============
 void setup(){
   Serial.begin(115200);
   Wire.begin(SDA_PIN,SCL_PIN);
@@ -353,10 +431,17 @@ void setup(){
   conectarWiFi();
   randomSeed(analogRead(0));
   mostrarTelaInicial();
+
+  pinMode(LED_VERDE_1, OUTPUT);
+  pinMode(LED_VERDE_2, OUTPUT);
+  pinMode(LED_VERMELHO_1, OUTPUT);
+  pinMode(LED_VERMELHO_2, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  apagarLeds();
 }
 
 // ========================
-// ==== LOOP ============
+// ==== LOOP ==============
 void loop(){
   if(WiFi.status()!=WL_CONNECTED){
     if(!conectarWiFi()){
@@ -414,13 +499,18 @@ void loop(){
       String cartaoSim = lerCartao(rfidSim);
       String cartaoNao = lerCartao(rfidNao);
 
-      if(cartaoSim != "") voto = "sim";
-      else if(cartaoNao != "") voto = "nao";
+      if(cartaoSim != "") {
+        voto = "sim";
+        somConfirmacaoSim(); // 🔊 LED + som juntos (SIM)
+      }
+      else if(cartaoNao != "") {
+        voto = "nao";
+        somConfirmacaoNao(); // 🔊 LED + som juntos (NÃO)
+      }
 
       if(voto != ""){
         estado = RESULTADO;
 
-        // ✅ Verifica se já interagiu antes de enviar
         bool jaInteragiu = usuarioJaInteragiu(usuarioUID, pergunta_id);
 
         if(!enviarInteracao(usuarioUID,voto)){
@@ -433,6 +523,10 @@ void loop(){
             delay(2000);
           }
         }
+
+        somUrna();
+        delay(1000);
+        apagarLeds();
       }
       break;
     }

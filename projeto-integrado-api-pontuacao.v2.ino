@@ -9,7 +9,7 @@
 
 // ========================
 // ==== CONFIG WIFI =======
-const char* ssid = "SENAC-Mesh";
+const char* ssid = "Senac-Mesh";
 const char* password = "09080706";
 const String API_BASE = "https://projeto-bigdata.onrender.com";
 const String TOTEM_ID = "5e652a794087";
@@ -32,6 +32,15 @@ LiquidCrystal_I2C lcd(0x27,16,2);
 
 MFRC522 rfidSim(SS_PIN_SIM, RST_PIN_SIM);
 MFRC522 rfidNao(SS_PIN_NAO, RST_PIN_NAO);
+
+// ========================
+// ==== CONFIG LEDS =======
+// LEDs verdes (para voto "sim") 
+#define LED_VERDE_1 14
+#define LED_VERDE_2 27
+// LEDs vermelhos (para voto "não")
+#define LED_VERMELHO_1 2
+#define LED_VERMELHO_2 13
 
 // ========================
 // ==== VARIAVEIS =========
@@ -232,7 +241,7 @@ bool usuarioJaInteragiu(const String &vem_hash, const String &pergunta_id) {
   if(code != 200) {
     Serial.println("Erro verificar interacao HTTP: " + String(code));
     http.end();
-    return false; // Em caso de erro, assume que não interagiu
+    return false;
   }
 
   String payload = http.getString();
@@ -343,7 +352,26 @@ void atualizarRolagem(){
 }
 
 // ========================
-// ==== SETUP ============
+// ==== LED CONTROLE ======
+void acenderLedVerde() {
+  digitalWrite(LED_VERDE_1, HIGH);
+  digitalWrite(LED_VERDE_2, HIGH);
+}
+
+void acenderLedVermelho() {
+  digitalWrite(LED_VERMELHO_1, HIGH);
+  digitalWrite(LED_VERMELHO_2, HIGH);
+}
+
+void apagarLeds() {
+  digitalWrite(LED_VERDE_1, LOW);
+  digitalWrite(LED_VERDE_2, LOW);
+  digitalWrite(LED_VERMELHO_1, LOW);
+  digitalWrite(LED_VERMELHO_2, LOW);
+}
+
+// ========================
+// ==== SETUP =============
 void setup(){
   Serial.begin(115200);
   Wire.begin(SDA_PIN,SCL_PIN);
@@ -353,10 +381,16 @@ void setup(){
   conectarWiFi();
   randomSeed(analogRead(0));
   mostrarTelaInicial();
+
+  pinMode(LED_VERDE_1, OUTPUT);
+  pinMode(LED_VERDE_2, OUTPUT);
+  pinMode(LED_VERMELHO_1, OUTPUT);
+  pinMode(LED_VERMELHO_2, OUTPUT);
+  apagarLeds();
 }
 
 // ========================
-// ==== LOOP ============
+// ==== LOOP ==============
 void loop(){
   if(WiFi.status()!=WL_CONNECTED){
     if(!conectarWiFi()){
@@ -420,8 +454,11 @@ void loop(){
       if(voto != ""){
         estado = RESULTADO;
 
-        // ✅ Verifica se já interagiu antes de enviar
         bool jaInteragiu = usuarioJaInteragiu(usuarioUID, pergunta_id);
+
+        // 💡 Correção: Verde = SIM / Vermelho = NÃO
+        if(voto == "sim") acenderLedVerde();
+        else if(voto == "nao") acenderLedVermelho();
 
         if(!enviarInteracao(usuarioUID,voto)){
           tratarErro("Enviar Voto");
@@ -433,6 +470,9 @@ void loop(){
             delay(2000);
           }
         }
+
+        delay(1000);
+        apagarLeds();
       }
       break;
     }
