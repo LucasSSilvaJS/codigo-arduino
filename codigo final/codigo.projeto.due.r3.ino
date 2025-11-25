@@ -262,18 +262,24 @@ void mostrarTelaCarregando(String mensagem) {
   // Header padronizado (40px)
   tft.fillRect(0, 0, 320, 40, BLUE);
   tft.setTextColor(WHITE);
-  tft.seNtTextSize(2);
+  tft.setTextSize(2);
   tft.setCursor(20, 12);
   tft.print("CARREGANDO");
   
-  // Mensagem principal (alinhada à esquerda)
+  // Mensagem principal (alinhada à esquerda) - usar mensagem dinâmica
   tft.setTextColor(WHITE);
-  tft.setTextSize(3);
-  tft.setCursor(20, 70);
-  tft.print("Carregando");
+  tft.setTextSize(2);
   
-  tft.setCursor(20, 110);
-  tft.print("pergunta");
+  // Limpar caracteres especiais da mensagem
+  String msgLimpa = limparCaracteresEspeciais(mensagem);
+  
+  // Exibir mensagem quebrada em linhas se necessário
+  if(msgLimpa.length() > 0) {
+    printTextoQuebrado(msgLimpa.c_str(), 20, 70, 280, 2);
+  } else {
+    tft.setCursor(20, 70);
+    tft.print("Aguarde...");
+  }
   
   // Loading padronizado na parte inferior
   static int loadingFrame = 0;

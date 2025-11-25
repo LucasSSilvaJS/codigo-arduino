@@ -13,14 +13,6 @@ const String API_BASE = "https://projeto-bigdata.onrender.com";
 const String TOTEM_ID = "5e652a794087";
 
 // ========================
-// ==== CONFIG SERIAL COM DUE ====
-// Serial2 para comunicação com Arduino Due
-// TX2 (pino 17) -> RX1 do Due
-// RX2 (pino 16) -> TX1 do Due
-#define SERIAL_DUE Serial2
-#define BAUD_RATE_DUE 115200
-
-// ========================
 // ==== CONFIG RFID =======
 #define SS_PIN_NAO 5
 #define RST_PIN_NAO 4
@@ -58,30 +50,12 @@ int pontuacaoAtual = 0;
 
 // ========================
 // ==== ESTADOS ===========
-enum Estado { ESPERA_CARTAO, VERIFICANDO_USUARIO, AGUARDANDO_CARTAO_APOS_HASH, CADASTRANDO, PERGUNTA, AGUARDANDO_VOTO, RESULTADO };
+enum Estado { ESPERA_CARTAO, VERIFICANDO_USUARIO, CADASTRANDO, PERGUNTA, AGUARDANDO_VOTO, RESULTADO };
 Estado estado = ESPERA_CARTAO;
 
 // ========================
-// ==== FUNÇÕES COMUNICAÇÃO COM DUE ====
-void enviarComandoDue(const String &comando, const String &dado1 = "", const String &dado2 = "") {
-  String mensagem = "TELA:" + comando;
-  if(dado1 != "") {
-    mensagem += "|" + dado1;
-    if(dado2 != "") {
-      mensagem += "|" + dado2;
-    }
-  }
-  mensagem += "\n";
-  SERIAL_DUE.print(mensagem);
-  SERIAL_DUE.flush();
-  String logMsg = mensagem;
-  logMsg.trim();
-  Serial.println("[ESP32->Due] " + logMsg);
-  delay(10); // Pequeno delay para garantir envio
-}
-
-// ========================
 // ==== FUNÇÕES AUX =======
+
 String lerCartao(MFRC522 &rfid) {
   if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) return "";
   String uid = "";
@@ -100,11 +74,10 @@ void mostrarTelaInicial() {
   pergunta_id = "";
   pontuacaoAtual = 0;
   estado = ESPERA_CARTAO;
-  enviarComandoDue("INICIAL");
 }
 
 void tratarErro(const String &estadoErro){
-  enviarComandoDue("ERRO", estadoErro);
+  Serial.println("Erro: " + estadoErro);
   delay(2000);
   mostrarTelaInicial();
 }
@@ -253,7 +226,7 @@ void somConfirmacaoNao() {
 // ==== WIFI ===============
 bool conectarWiFi() {
   WiFi.begin(ssid,password);
-  enviarComandoDue("CARREGANDO", "Conectando WiFi...");
+  Serial.println("WiFi conectando...");
   int tentativas = 0;
   while(WiFi.status()!=WL_CONNECTED && tentativas<20){
     delay(200);
@@ -265,7 +238,6 @@ bool conectarWiFi() {
     return true;
   } else {
     Serial.println("Erro WiFi");
-    enviarComandoDue("ERRO", "Erro WiFi");
     delay(2000);
     mostrarTelaInicial();
     return false;
@@ -299,12 +271,12 @@ bool cadastrarUsuario(const String &vem_hash){
   Serial.println("HTTP code cadastro: "+String(code));
   Serial.println("Resposta: "+resposta);
   if(code==200||code==201){
-    enviarComandoDue("CADASTRO");
+    Serial.println("Usuario cadastrado com sucesso");
     somCadastro(); // 🔊 Som de cadastro
     delay(1000);
     return true;
   } else {
-    enviarComandoDue("ERRO", "Erro cadastro");
+    Serial.println("Erro ao cadastrar usuario");
     delay(2000);
     return false;
   }
@@ -312,29 +284,6 @@ bool cadastrarUsuario(const String &vem_hash){
 
 // ========================
 // ==== PONTUAÇÃO =========
-int obterPontuacaoTotal(const String &vem_hash){
-  if(WiFi.status() != WL_CONNECTED) return -1;
-  WiFiClientSecure client; client.setInsecure();
-  HTTPClient http;
-  String url = API_BASE + "/usuarios/" + vem_hash;
-  http.begin(client, url);
-  int code = http.GET();
-  if(code != 200){
-    http.end();
-    return -1;
-  }
-  String resposta = http.getString();
-  http.end();
-  DynamicJsonDocument doc(512);
-  if(deserializeJson(doc, resposta)){
-    return -1;
-  }
-  if(doc.containsKey("pontuacao")){
-    return doc["pontuacao"].as<int>();
-  }
-  return -1;
-}
-
 bool atualizarPontuacao(const String &vem_hash, int pontos){
   if(WiFi.status() != WL_CONNECTED) return false;
   WiFiClientSecure client; client.setInsecure();
@@ -347,33 +296,12 @@ bool atualizarPontuacao(const String &vem_hash, int pontos){
   Serial.println("HTTP code pontuacao: " + String(code));
   Serial.println("Resposta: " + resposta);
   if(code == 200 || code == 201){
-    // Tentar extrair pontuação da resposta
-    DynamicJsonDocument doc(512);
-    int pontuacaoTotal = -1;
-    if(!deserializeJson(doc, resposta)){
-      if(doc.containsKey("pontuacao")){
-        pontuacaoTotal = doc["pontuacao"].as<int>();
-      }
-    }
-    
-    // Se não conseguiu da resposta, buscar da API
-    if(pontuacaoTotal < 0){
-      pontuacaoTotal = obterPontuacaoTotal(vem_hash);
-    }
-    
-    if(pontuacaoTotal >= 0){
-      pontuacaoAtual = pontuacaoTotal;
-    } else {
-      // Se não conseguir obter da API, usa o valor local
-      pontuacaoAtual += pontos;
-    }
-    
-    // Exibir pontuação no Due
-    enviarComandoDue("PONTUACAO", String(pontos), String(pontuacaoAtual));
-    delay(2000); // Tempo para exibir pontuação
+    pontuacaoAtual += pontos;
+    Serial.println("Pontuação +" + String(pontos) + " | Total: " + String(pontuacaoAtual));
+    delay(1000);
     return true;
   } else {
-    enviarComandoDue("ERRO", "Erro pontos");
+    Serial.println("Erro ao atualizar pontuacao");
     delay(2000);
     return false;
   }
@@ -383,7 +311,7 @@ bool atualizarPontuacao(const String &vem_hash, int pontos){
 // ==== INTERAÇÃO =========
 bool enviarInteracao(String vem_hash, String voto){
   if(WiFi.status()!=WL_CONNECTED) return false;
-  enviarComandoDue("CARREGANDO", "Enviando voto...");
+  Serial.println("Enviando voto: " + voto);
   WiFiClientSecure client; client.setInsecure();
   HTTPClient http;
   String url = API_BASE+"/interacoes/?vem_hash="+vem_hash+"&pergunta_id="+pergunta_id+"&totem_id="+TOTEM_ID+"&resposta="+voto;
@@ -437,14 +365,14 @@ bool usuarioJaInteragiu(const String &vem_hash, const String &pergunta_id) {
 // ==== SCORE ==============
 bool mostrarResultadoReal(String pergunta_id){
   if(WiFi.status()!=WL_CONNECTED) return false;
-  enviarComandoDue("CARREGANDO", "Calculando resultado...");
+  Serial.println("Calculando score...");
   WiFiClientSecure client; client.setInsecure();
   HTTPClient http;
   String url = API_BASE+"/interacoes/score/"+pergunta_id;
   http.begin(client,url);
   int code = http.GET();
   if(code!=200){
-    enviarComandoDue("ERRO", "Falha score");
+    Serial.println("Falha ao calcular score");
     http.end();
     delay(2000);
     return false;
@@ -453,13 +381,13 @@ bool mostrarResultadoReal(String pergunta_id){
   http.end();
   DynamicJsonDocument doc(512);
   if(deserializeJson(doc,payload)){
-    enviarComandoDue("ERRO", "Falha score");
+    Serial.println("Falha ao processar score");
     delay(2000);
     return false;
   }
   float sim = doc["sim"];
   float nao = doc["nao"];
-  enviarComandoDue("RESULTADO", String((int)sim), String((int)nao));
+  Serial.println("Resultado - Sim: " + String((int)sim) + "% | Nao: " + String((int)nao) + "%");
   somResultadoExibido(); // 🔊 Som de resultado exibido
   delay(2500);
   return true;
@@ -469,14 +397,14 @@ bool mostrarResultadoReal(String pergunta_id){
 // ==== PERGUNTA ==========
 bool obterUltimaPergunta(){
   if(WiFi.status()!=WL_CONNECTED) return false;
-  enviarComandoDue("CARREGANDO", "Buscando pergunta...");
+  Serial.println("Carregando pergunta...");
   WiFiClientSecure client; client.setInsecure();
   HTTPClient http;
   String url = API_BASE+"/perguntas/ultima";
   http.begin(client,url);
   int code = http.GET();
   if(code!=200){
-    enviarComandoDue("ERRO", "Erro pergunta");
+    Serial.println("Erro ao carregar pergunta");
     http.end();
     delay(2000);
     return false;
@@ -485,14 +413,14 @@ bool obterUltimaPergunta(){
   http.end();
   DynamicJsonDocument doc(1024);
   if(deserializeJson(doc,payload)){
-    enviarComandoDue("ERRO", "Erro JSON");
+    Serial.println("Erro ao processar JSON da pergunta");
     delay(2000);
     return false;
   }
   pergunta = doc["texto"].as<String>();
   pergunta_id = doc["pergunta_id"].as<String>();
 
-  enviarComandoDue("PERGUNTA", pergunta);
+  Serial.println("Pergunta carregada: " + pergunta);
   somPerguntaCarregada(); // 🔊 Som de pergunta carregada
   estado = AGUARDANDO_VOTO;
   return true;
@@ -521,20 +449,8 @@ void apagarLeds() {
 // ==== SETUP =============
 void setup(){
   Serial.begin(115200);
-  delay(1000);
-  
-  // Inicializar Serial2 para comunicação com Arduino Due
-  // TX2 (pino 17) -> RX1 do Due
-  // RX2 (pino 16) -> TX1 do Due
-  SERIAL_DUE.begin(BAUD_RATE_DUE, SERIAL_8N1, 16, 17);
-  delay(1000);
-  Serial.println("Serial2 inicializada para comunicacao com Due (TX2=17, RX2=16)");
-  
   SPI.begin(SCK_PIN,MISO_PIN,MOSI_PIN,SS_PIN_SIM);
-  rfidSim.PCD_Init(); 
-  rfidNao.PCD_Init();
-  delay(500);
-  
+  rfidSim.PCD_Init(); rfidNao.PCD_Init();
   conectarWiFi();
   randomSeed(analogRead(0));
   mostrarTelaInicial();
@@ -563,23 +479,18 @@ void loop(){
 
   switch(estado){
     case ESPERA_CARTAO:{
-      // Ler SIM primeiro (prioridade)
       String uidSim = lerCartao(rfidSim);
+      delay(10); // Pequeno delay para evitar interferência entre leitores
+      String uidNao = lerCartao(rfidNao);
       if(uidSim!="") {
         usuarioUID=uidSim;
         Serial.println("Cartao SIM detectado: " + usuarioUID);
-        enviarComandoDue("VERIFICANDO", usuarioUID.substring(0,16));
         estado = VERIFICANDO_USUARIO;
-      } else {
-        // Só ler NÃO se SIM não detectou nada
-        delay(20); // Delay maior para evitar interferência
-        String uidNao = lerCartao(rfidNao);
-        if(uidNao!="") {
-          usuarioUID=uidNao;
-          Serial.println("Cartao NAO detectado: " + usuarioUID);
-          enviarComandoDue("VERIFICANDO", usuarioUID.substring(0,16));
-          estado = VERIFICANDO_USUARIO;
-        }
+      }
+      else if(uidNao!="") {
+        usuarioUID=uidNao;
+        Serial.println("Cartao NAO detectado: " + usuarioUID);
+        estado = VERIFICANDO_USUARIO;
       }
       break;
     }
@@ -591,35 +502,9 @@ void loop(){
       }
       somVerificacao(); // 🔊 Som de verificação
       if(usuarioExiste(usuarioUID)){
-        // Obter pontuação atual do usuário
-        int pontuacaoTotal = obterPontuacaoTotal(usuarioUID);
-        if(pontuacaoTotal >= 0){
-          pontuacaoAtual = pontuacaoTotal;
-        }
-        // Exibir hash do usuário no Due e aguardar cartão
-        enviarComandoDue("HASH_USUARIO", usuarioUID);
-        estado = AGUARDANDO_CARTAO_APOS_HASH;
-      } else {
-        estado = CADASTRANDO;
-      }
-      break;
-    }
-
-    case AGUARDANDO_CARTAO_APOS_HASH:{
-      // Aguardar cartão em qualquer um dos leitores
-      // Ler SIM primeiro (prioridade)
-      String cartaoSim = lerCartao(rfidSim);
-      if(cartaoSim != ""){
-        Serial.println("Cartao SIM confirmado! Continuando...");
         estado = PERGUNTA;
       } else {
-        // Só ler NÃO se SIM não detectou nada
-        delay(20); // Delay maior para evitar interferência
-        String cartaoNao = lerCartao(rfidNao);
-        if(cartaoNao != ""){
-          Serial.println("Cartao NAO confirmado! Continuando...");
-          estado = PERGUNTA;
-        }
+        estado = CADASTRANDO;
       }
       break;
     }
@@ -642,19 +527,17 @@ void loop(){
     }
 
     case AGUARDANDO_VOTO:{
-      // Ler SIM primeiro (prioridade)
       String cartaoSim = lerCartao(rfidSim);
+      delay(10); // Pequeno delay para evitar interferência entre leitores
+      String cartaoNao = lerCartao(rfidNao);
+
       if(cartaoSim != "") {
         voto = "sim";
         somConfirmacaoSim(); // 🔊 LED + som juntos (SIM)
-      } else {
-        // Só ler NÃO se SIM não detectou nada
-        delay(20); // Delay maior para evitar interferência
-        String cartaoNao = lerCartao(rfidNao);
-        if(cartaoNao != "") {
-          voto = "nao";
-          somConfirmacaoNao(); // 🔊 LED + som juntos (NÃO)
-        }
+      }
+      else if(cartaoNao != "") {
+        voto = "nao";
+        somConfirmacaoNao(); // 🔊 LED + som juntos (NÃO)
       }
 
       if(voto != ""){
@@ -668,14 +551,7 @@ void loop(){
           if(!jaInteragiu){
             atualizarPontuacao(usuarioUID, 10);
           } else {
-            // Obter pontuação total atual para exibir
-            int pontuacaoTotal = obterPontuacaoTotal(usuarioUID);
-            if(pontuacaoTotal >= 0){
-              pontuacaoAtual = pontuacaoTotal;
-              enviarComandoDue("VOTO_ATUALIZADO", String(pontuacaoAtual));
-            } else {
-              enviarComandoDue("VOTO_ATUALIZADO", String(pontuacaoAtual));
-            }
+            Serial.println("Voto atualizado - Sem pontos");
             delay(2000);
           }
         }
@@ -691,9 +567,6 @@ void loop(){
       if(!mostrarResultadoReal(pergunta_id)){
         tratarErro("Score");
       } else {
-        // Exibir QR Code como última tela (permanece por muito tempo)
-        enviarComandoDue("QRCODE");
-        delay(20000); // QR Code permanece por 20 segundos (última tela)
         mostrarTelaInicial();
         voto="";
         usuarioUID="";
@@ -702,3 +575,4 @@ void loop(){
     }
   }
 }
+
