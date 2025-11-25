@@ -139,10 +139,12 @@ void mostrarTelaInicial() {
   pontuacaoAtual = 0;
   estado = ESPERA_CARTAO;
   enviarComandoDue("INICIAL");
+  somTelaInicial(); // 🔊 Som de tela inicial
 }
 
 void tratarErro(const String &estadoErro){
   enviarComandoDue("ERRO", estadoErro);
+  somErro(); // 🔊 Som de erro
   if(delayComLeituraCartao(2000)) {
     // Cartão detectado durante delay, voltar ao início
     mostrarTelaInicial();
@@ -253,6 +255,119 @@ void somResultadoExibido() {
   delay(100);
   
   tone(BUZZER_PIN, 1200);
+  delay(200);
+  noTone(BUZZER_PIN);
+}
+
+// 🔊 Som de cartão detectado (ao detectar cartão inicial)
+// Descrição: Bip ascendente marcante (1200Hz → 1800Hz)
+// Quando: Ao detectar cartão no estado ESPERA_CARTAO
+void somCartaoDetectado() {
+  tone(BUZZER_PIN, 1200);
+  delay(150);
+  noTone(BUZZER_PIN);
+  delay(50);
+  
+  tone(BUZZER_PIN, 1800);
+  delay(200);
+  noTone(BUZZER_PIN);
+}
+
+// 🔊 Som de hash exibido (ao exibir hash do usuário)
+// Descrição: Três bips curtos ascendentes (1000Hz → 1400Hz → 1800Hz)
+// Quando: Ao exibir hash do usuário e aguardar confirmação
+void somHashExibido() {
+  tone(BUZZER_PIN, 1000);
+  delay(120);
+  noTone(BUZZER_PIN);
+  delay(80);
+  
+  tone(BUZZER_PIN, 1400);
+  delay(120);
+  noTone(BUZZER_PIN);
+  delay(80);
+  
+  tone(BUZZER_PIN, 1800);
+  delay(150);
+  noTone(BUZZER_PIN);
+}
+
+// 🔊 Som de pontuação (ao exibir pontuação)
+// Descrição: Sequência alegre ascendente (1100Hz → 1500Hz → 1900Hz)
+// Quando: Ao exibir pontuação ganha e total
+void somPontuacao() {
+  tone(BUZZER_PIN, 1100);
+  delay(100);
+  noTone(BUZZER_PIN);
+  delay(60);
+  
+  tone(BUZZER_PIN, 1500);
+  delay(100);
+  noTone(BUZZER_PIN);
+  delay(60);
+  
+  tone(BUZZER_PIN, 1900);
+  delay(150);
+  noTone(BUZZER_PIN);
+}
+
+// 🔊 Som de voto atualizado (ao atualizar voto sem ganhar pontos)
+// Descrição: Bip duplo médio (1400Hz)
+// Quando: Ao exibir mensagem de voto atualizado
+void somVotoAtualizado() {
+  tone(BUZZER_PIN, 1400);
+  delay(180);
+  noTone(BUZZER_PIN);
+  delay(100);
+  
+  tone(BUZZER_PIN, 1400);
+  delay(180);
+  noTone(BUZZER_PIN);
+}
+
+// 🔊 Som de QR Code (ao exibir QR Code)
+// Descrição: Sequência longa e marcante (800Hz → 1200Hz → 1600Hz → 2000Hz)
+// Quando: Ao exibir QR Code na tela
+void somQRCode() {
+  tone(BUZZER_PIN, 800);
+  delay(200);
+  noTone(BUZZER_PIN);
+  delay(100);
+  
+  tone(BUZZER_PIN, 1200);
+  delay(200);
+  noTone(BUZZER_PIN);
+  delay(100);
+  
+  tone(BUZZER_PIN, 1600);
+  delay(200);
+  noTone(BUZZER_PIN);
+  delay(100);
+  
+  tone(BUZZER_PIN, 2000);
+  delay(300);
+  noTone(BUZZER_PIN);
+}
+
+// 🔊 Som de erro (ao ocorrer erro)
+// Descrição: Bip grave descendente (1500Hz → 800Hz)
+// Quando: Ao exibir mensagem de erro
+void somErro() {
+  tone(BUZZER_PIN, 1500);
+  delay(200);
+  noTone(BUZZER_PIN);
+  delay(100);
+  
+  tone(BUZZER_PIN, 800);
+  delay(300);
+  noTone(BUZZER_PIN);
+}
+
+// 🔊 Som de tela inicial (ao voltar para tela inicial)
+// Descrição: Bip único médio (1300Hz)
+// Quando: Ao voltar para tela inicial após ciclo completo
+void somTelaInicial() {
+  tone(BUZZER_PIN, 1300);
   delay(200);
   noTone(BUZZER_PIN);
 }
@@ -660,6 +775,7 @@ void loop(){
         }
         // Exibir hash do usuário no Due e aguardar cartão
         enviarComandoDue("HASH_USUARIO", usuarioUID);
+        somHashExibido(); // 🔊 Som de hash exibido
         estado = AGUARDANDO_CARTAO_APOS_HASH;
       } else {
         estado = CADASTRANDO;
@@ -682,6 +798,7 @@ void loop(){
       if(cartaoSim != ""){
         Serial.println("Cartao SIM confirmado! Continuando...");
         ultimaDetecaoCartao = millis(); // Registrar momento da detecção
+        somCartaoDetectado(); // 🔊 Som de cartão confirmado
         delay(500); // Delay para estabilizar
         estado = PERGUNTA;
       } else {
@@ -691,6 +808,7 @@ void loop(){
         if(cartaoNao != ""){
           Serial.println("Cartao NAO confirmado! Continuando...");
           ultimaDetecaoCartao = millis(); // Registrar momento da detecção
+          somCartaoDetectado(); // 🔊 Som de cartão confirmado
           delay(500); // Delay para estabilizar
           estado = PERGUNTA;
         }
@@ -763,6 +881,7 @@ void loop(){
             } else {
               enviarComandoDue("VOTO_ATUALIZADO", String(pontuacaoAtual));
             }
+            somVotoAtualizado(); // 🔊 Som de voto atualizado
             if(delayComLeituraCartao(2000)) {
               // Cartão detectado durante delay, voltar ao início
               mostrarTelaInicial();
@@ -790,9 +909,10 @@ void loop(){
       if(!mostrarResultadoReal(pergunta_id)){
         tratarErro("Score");
       } else {
-        // Exibir QR Code como última tela (permanece por muito tempo)
+        // Exibir QR Code como última tela (permanece por 3 minutos)
         enviarComandoDue("QRCODE");
-        if(delayComLeituraCartao(20000)) {
+        somQRCode(); // 🔊 Som de QR Code
+        if(delayComLeituraCartao(180000)) { // 3 minutos = 180000ms
           // Cartão detectado durante delay, voltar ao início imediatamente
           mostrarTelaInicial();
           voto="";
