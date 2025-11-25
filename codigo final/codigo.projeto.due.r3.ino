@@ -41,6 +41,17 @@ String dados[3]; // Array para armazenar dados do comando
 bool tftInicializado = false;
 unsigned long ultimoComandoRecebido = 0;
 
+// Variáveis de animação
+bool telaCarregandoAtiva = false;
+bool telaVerificandoAtiva = false;
+bool telaInicialAtiva = false;
+unsigned long ultimaAtualizacaoLoading = 0;
+unsigned long ultimaAtualizacaoVerificando = 0;
+unsigned long ultimaAtualizacaoOnibus = 0;
+int loadingFrame = 0;
+int verificandoFrame = 0;
+int onibusPosX = -80; // Posição X do ônibus (começa fora da tela)
+
 // ========================
 // ==== SISTEMA DE LOG =====
 void logInfo(const String &mensagem) {
@@ -189,6 +200,8 @@ void limparTela() {
 }
 
 void mostrarTelaInicial() {
+  telaCarregandoAtiva = false; // Desativar animação de loading
+  telaVerificandoAtiva = false; // Desativar animação de verificação
   logInfo("Exibindo tela inicial...");
   if(!tftInicializado) {
     logErro("TFT nao inicializado! Nao e possivel exibir tela inicial.");
@@ -213,10 +226,66 @@ void mostrarTelaInicial() {
   tft.setCursor(20, 110);
   tft.print("o cartao");
   
+  // Ativar animação de ônibus
+  telaInicialAtiva = true;
+  onibusPosX = -80; // Começar fora da tela
+  ultimaAtualizacaoOnibus = millis();
+  
   logInfo("Tela inicial exibida com sucesso!");
 }
 
+void atualizarAnimacaoOnibus() {
+  if(!telaInicialAtiva) return;
+  
+  // Atualizar animação a cada 30ms para movimento suave
+  unsigned long tempoAtual = millis();
+  if(tempoAtual - ultimaAtualizacaoOnibus < 30) {
+    return;
+  }
+  
+  ultimaAtualizacaoOnibus = tempoAtual;
+  
+  // Limpar área do ônibus (linha horizontal onde ele passa)
+  tft.fillRect(0, 160, 320, 50, BLACK);
+  
+  // Mover ônibus da esquerda para direita
+  onibusPosX += 3;
+  if(onibusPosX > 400) {
+    // Quando sai da tela, reiniciar da esquerda
+    onibusPosX = -80;
+  }
+  
+  // Desenhar ônibus apenas se estiver visível
+  if(onibusPosX > -80 && onibusPosX < 400) {
+    int onibusY = 175; // Posição Y fixa
+    int onibusLargura = 80;
+    int onibusAltura = 40;
+    
+    // Corpo do ônibus (amarelo)
+    tft.fillRect(onibusPosX, onibusY, onibusLargura, onibusAltura, YELLOW);
+    
+    // Janelas do ônibus
+    tft.fillRect(onibusPosX + 10, onibusY + 5, 15, 15, CYAN);
+    tft.fillRect(onibusPosX + 30, onibusY + 5, 15, 15, CYAN);
+    tft.fillRect(onibusPosX + 50, onibusY + 5, 15, 15, CYAN);
+    
+    // Rodas do ônibus
+    tft.fillCircle(onibusPosX + 15, onibusY + onibusAltura, 8, BLACK);
+    tft.fillCircle(onibusPosX + 65, onibusY + onibusAltura, 8, BLACK);
+    
+    // Borda do ônibus
+    tft.drawRect(onibusPosX, onibusY, onibusLargura, onibusAltura, BLACK);
+    
+    // Texto "BUS" no ônibus
+    tft.setTextColor(BLACK);
+    tft.setTextSize(1);
+    tft.setCursor(onibusPosX + 25, onibusY + 25);
+    tft.print("BUS");
+  }
+}
+
 void mostrarTelaVerificando(String uid) {
+  telaInicialAtiva = false; // Desativar animação de ônibus
   limparTela();
   
   // Header padronizado (40px)
@@ -235,28 +304,66 @@ void mostrarTelaVerificando(String uid) {
   tft.setCursor(20, 110);
   tft.print("cartao");
   
-  // Loading padronizado na parte inferior
-  static int loadingFrame = 0;
-  loadingFrame = (loadingFrame + 1) % 8;
+  // Ativar animação de loading
+  telaVerificandoAtiva = true;
+  verificandoFrame = 0;
+  ultimaAtualizacaoVerificando = millis();
+  
+  // Desenhar loading inicial
+  atualizarAnimacaoVerificando();
+}
+
+void atualizarAnimacaoVerificando() {
+  if(!telaVerificandoAtiva) return;
+  
+  // Atualizar animação a cada 150ms
+  unsigned long tempoAtual = millis();
+  if(tempoAtual - ultimaAtualizacaoVerificando < 150) {
+    return;
+  }
+  
+  ultimaAtualizacaoVerificando = tempoAtual;
+  verificandoFrame = (verificandoFrame + 1) % 8;
   
   int loadingY = 200;
   int centerX = 160;
   int radius = 12;
   
+  // Limpar área do loading (evitar fantasma)
+  tft.fillRect(centerX - radius - 5, loadingY - radius - 5, (radius + 5) * 2, (radius + 5) * 2, BLACK);
+  
+  // Desenhar círculos animados
   for(int i = 0; i < 8; i++) {
     float angle = (i * 45.0 - 90.0) * PI / 180.0;
     int x = centerX + (int)(radius * cos(angle));
     int y = loadingY + (int)(radius * sin(angle));
     
-    if(i == loadingFrame) {
-      tft.fillCircle(x, y, 3, BLUE);
-    } else {
+    // Calcular intensidade baseada na distância do frame atual
+    int distancia = abs(i - verificandoFrame);
+    if(distancia > 4) distancia = 8 - distancia; // Wrap around
+    
+    // Círculo ativo (mais brilhante e maior)
+    if(i == verificandoFrame) {
+      tft.fillCircle(x, y, 4, BLUE);
       tft.fillCircle(x, y, 2, CYAN);
+    } 
+    // Círculos próximos (meio brilhantes)
+    else if(distancia == 1 || distancia == 7) {
+      tft.fillCircle(x, y, 3, CYAN);
+    }
+    // Círculos intermediários
+    else if(distancia == 2 || distancia == 6) {
+      tft.fillCircle(x, y, 2, CYAN);
+    }
+    // Círculos distantes (mais fracos)
+    else {
+      tft.fillCircle(x, y, 1, CYAN);
     }
   }
 }
 
 void mostrarTelaCarregando(String mensagem) {
+  telaInicialAtiva = false; // Desativar animação de ônibus
   limparTela();
   
   // Header padronizado (40px)
@@ -281,28 +388,68 @@ void mostrarTelaCarregando(String mensagem) {
     tft.print("Aguarde...");
   }
   
-  // Loading padronizado na parte inferior
-  static int loadingFrame = 0;
+  // Ativar animação de loading
+  telaCarregandoAtiva = true;
+  loadingFrame = 0;
+  ultimaAtualizacaoLoading = millis();
+  
+  // Desenhar loading inicial
+  atualizarAnimacaoLoading();
+}
+
+void atualizarAnimacaoLoading() {
+  if(!telaCarregandoAtiva) return;
+  
+  // Atualizar animação a cada 150ms
+  unsigned long tempoAtual = millis();
+  if(tempoAtual - ultimaAtualizacaoLoading < 150) {
+    return;
+  }
+  
+  ultimaAtualizacaoLoading = tempoAtual;
   loadingFrame = (loadingFrame + 1) % 8;
   
   int loadingY = 200;
   int centerX = 160;
   int radius = 12;
   
+  // Limpar área do loading (evitar fantasma)
+  tft.fillRect(centerX - radius - 5, loadingY - radius - 5, (radius + 5) * 2, (radius + 5) * 2, BLACK);
+  
+  // Desenhar círculos animados
   for(int i = 0; i < 8; i++) {
     float angle = (i * 45.0 - 90.0) * PI / 180.0;
     int x = centerX + (int)(radius * cos(angle));
     int y = loadingY + (int)(radius * sin(angle));
     
+    // Calcular intensidade baseada na distância do frame atual
+    int distancia = abs(i - loadingFrame);
+    if(distancia > 4) distancia = 8 - distancia; // Wrap around
+    
+    // Círculo ativo (mais brilhante e maior)
     if(i == loadingFrame) {
-      tft.fillCircle(x, y, 3, BLUE);
-    } else {
+      tft.fillCircle(x, y, 4, BLUE);
       tft.fillCircle(x, y, 2, CYAN);
+    } 
+    // Círculos próximos (meio brilhantes)
+    else if(distancia == 1 || distancia == 7) {
+      tft.fillCircle(x, y, 3, CYAN);
+    }
+    // Círculos intermediários
+    else if(distancia == 2 || distancia == 6) {
+      tft.fillCircle(x, y, 2, CYAN);
+    }
+    // Círculos distantes (mais fracos)
+    else {
+      tft.fillCircle(x, y, 1, CYAN);
     }
   }
 }
 
 void mostrarTelaCadastro() {
+  telaInicialAtiva = false; // Desativar animação de ônibus
+  telaCarregandoAtiva = false; // Desativar animação de loading
+  telaVerificandoAtiva = false; // Desativar animação de verificação
   limparTela();
   
   // Header padronizado (40px)
@@ -328,6 +475,9 @@ void mostrarTelaCadastro() {
 }
 
 void mostrarTelaHashUsuario(String hash) {
+  telaInicialAtiva = false; // Desativar animação de ônibus
+  telaCarregandoAtiva = false; // Desativar animação de loading
+  telaVerificandoAtiva = false; // Desativar animação de verificação
   limparTela();
   
   // Header padronizado (40px)
@@ -359,6 +509,11 @@ void mostrarTelaHashUsuario(String hash) {
 }
 
 void mostrarTelaPergunta(String pergunta) {
+  // Desativar todas as animações
+  telaInicialAtiva = false;
+  telaCarregandoAtiva = false;
+  telaVerificandoAtiva = false;
+  
   limparTela();
   
   logInfo("Exibindo pergunta: " + pergunta.substring(0, 50));
@@ -385,6 +540,9 @@ void mostrarTelaPergunta(String pergunta) {
     tft.setCursor(25, 65);
     tft.print("Carregando pergunta...");
   }
+  
+  // Limpar área onde o loading poderia aparecer (evitar vazamento)
+  tft.fillRect(0, 180, 320, 60, BLACK);
   
   // Divisor padronizado
   tft.drawLine(15, 170, 305, 170, CYAN);
@@ -414,6 +572,9 @@ void mostrarTelaPergunta(String pergunta) {
 }
 
 void mostrarTelaResultado(String simStr, String naoStr) {
+  telaInicialAtiva = false; // Desativar animação de ônibus
+  telaCarregandoAtiva = false; // Desativar animação de loading
+  telaVerificandoAtiva = false; // Desativar animação de verificação
   limparTela();
   
   int simPercent = simStr.toInt();
@@ -474,6 +635,9 @@ void mostrarTelaResultado(String simStr, String naoStr) {
 }
 
 void mostrarTelaErro(String mensagem) {
+  telaInicialAtiva = false; // Desativar animação de ônibus
+  telaCarregandoAtiva = false; // Desativar animação de loading
+  telaVerificandoAtiva = false; // Desativar animação de verificação
   limparTela();
   
   // Header padronizado (40px)
@@ -500,6 +664,9 @@ void mostrarTelaErro(String mensagem) {
 }
 
 void mostrarTelaPontuacao(String pontos, String total) {
+  telaInicialAtiva = false; // Desativar animação de ônibus
+  telaCarregandoAtiva = false; // Desativar animação de loading
+  telaVerificandoAtiva = false; // Desativar animação de verificação
   limparTela();
   
   // Header padronizado (40px)
@@ -523,6 +690,9 @@ void mostrarTelaPontuacao(String pontos, String total) {
 }
 
 void mostrarTelaVotoAtualizado(String pontuacaoTotal) {
+  telaInicialAtiva = false; // Desativar animação de ônibus
+  telaCarregandoAtiva = false; // Desativar animação de loading
+  telaVerificandoAtiva = false; // Desativar animação de verificação
   limparTela();
   
   // Header padronizado (40px)
@@ -556,6 +726,9 @@ void mostrarTelaVotoAtualizado(String pontuacaoTotal) {
 }
 
 void mostrarTelaQRCode() {
+  telaInicialAtiva = false; // Desativar animação de ônibus
+  telaCarregandoAtiva = false; // Desativar animação de loading
+  telaVerificandoAtiva = false; // Desativar animação de verificação
   limparTela();
   
   // Header padronizado (40px)
@@ -600,6 +773,9 @@ void mostrarTelaQRCode() {
 }
 
 void mostrarTelaSemComunicacao(bool indicadorPiscante = false) {
+  telaInicialAtiva = false; // Desativar animação de ônibus
+  telaCarregandoAtiva = false; // Desativar animação de loading
+  telaVerificandoAtiva = false; // Desativar animação de verificação
   limparTela();
   
   // Header padronizado (40px)
@@ -790,6 +966,21 @@ void setup() {
 // ========================
 // ==== LOOP ==============
 void loop() {
+  // Atualizar animação do loading se a tela estiver ativa
+  if(telaCarregandoAtiva) {
+    atualizarAnimacaoLoading();
+  }
+  
+  // Atualizar animação de verificação se a tela estiver ativa
+  if(telaVerificandoAtiva) {
+    atualizarAnimacaoVerificando();
+  }
+  
+  // Atualizar animação de ônibus se a tela inicial estiver ativa
+  if(telaInicialAtiva) {
+    atualizarAnimacaoOnibus();
+  }
+  
   // Ler dados da Serial1 (ESP32)
   if(SERIAL_ESP32.available()) {
     int bytesDisponiveis = SERIAL_ESP32.available();
