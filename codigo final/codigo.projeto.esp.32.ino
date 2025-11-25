@@ -55,6 +55,8 @@ String voto = "";
 String pergunta = "";
 String pergunta_id = "";
 int pontuacaoAtual = 0;
+unsigned long ultimaDetecaoCartao = 0; // Controle de intervalo entre detecções
+const unsigned long INTERVALO_MINIMO_CARTAO = 2000; // 2 segundos entre detecções
 
 // ========================
 // ==== ESTADOS ===========
@@ -93,6 +95,42 @@ String lerCartao(MFRC522 &rfid) {
   return uid;
 }
 
+// Delay que pode ser interrompido ao aproximar cartão
+// Retorna true se cartão foi detectado, false se delay completo
+// Inclui intervalo mínimo entre detecções para evitar avanços muito rápidos
+bool delayComLeituraCartao(unsigned long tempoMs) {
+  unsigned long inicio = millis();
+  while(millis() - inicio < tempoMs) {
+    // Verificar se passou o intervalo mínimo desde a última detecção
+    unsigned long tempoAtual = millis();
+    if(tempoAtual - ultimaDetecaoCartao < INTERVALO_MINIMO_CARTAO) {
+      // Ainda não passou o intervalo mínimo, continuar delay sem verificar cartões
+      delay(100);
+      continue;
+    }
+    
+    // Verificar cartão SIM primeiro
+    String cartaoSim = lerCartao(rfidSim);
+    if(cartaoSim != "") {
+      Serial.println("Cartao SIM detectado durante delay - interrompendo");
+      ultimaDetecaoCartao = millis(); // Registrar momento da detecção
+      delay(500); // Pequeno delay adicional para estabilizar
+      return true; // Cartão detectado, interromper delay
+    }
+    delay(50); // Pequeno delay para não sobrecarregar
+    // Verificar cartão NÃO
+    String cartaoNao = lerCartao(rfidNao);
+    if(cartaoNao != "") {
+      Serial.println("Cartao NAO detectado durante delay - interrompendo");
+      ultimaDetecaoCartao = millis(); // Registrar momento da detecção
+      delay(500); // Pequeno delay adicional para estabilizar
+      return true; // Cartão detectado, interromper delay
+    }
+    delay(50); // Pequeno delay para não sobrecarregar
+  }
+  return false; // Nenhum cartão detectado, delay completo
+}
+
 void mostrarTelaInicial() {
   usuarioUID = "";
   voto = "";
@@ -105,7 +143,11 @@ void mostrarTelaInicial() {
 
 void tratarErro(const String &estadoErro){
   enviarComandoDue("ERRO", estadoErro);
-  delay(2000);
+  if(delayComLeituraCartao(2000)) {
+    // Cartão detectado durante delay, voltar ao início
+    mostrarTelaInicial();
+    return;
+  }
   mostrarTelaInicial();
 }
 
@@ -266,7 +308,7 @@ bool conectarWiFi() {
   } else {
     Serial.println("Erro WiFi");
     enviarComandoDue("ERRO", "Erro WiFi");
-    delay(2000);
+    delayComLeituraCartao(2000);
     mostrarTelaInicial();
     return false;
   }
@@ -301,11 +343,11 @@ bool cadastrarUsuario(const String &vem_hash){
   if(code==200||code==201){
     enviarComandoDue("CADASTRO");
     somCadastro(); // 🔊 Som de cadastro
-    delay(1000);
+    delayComLeituraCartao(1000);
     return true;
   } else {
     enviarComandoDue("ERRO", "Erro cadastro");
-    delay(2000);
+    delayComLeituraCartao(2000);
     return false;
   }
 }
@@ -370,11 +412,15 @@ bool atualizarPontuacao(const String &vem_hash, int pontos){
     
     // Exibir pontuação no Due
     enviarComandoDue("PONTUACAO", String(pontos), String(pontuacaoAtual));
-    delay(2000); // Tempo para exibir pontuação
+    if(delayComLeituraCartao(2000)) {
+      // Cartão detectado durante delay, voltar ao início
+      mostrarTelaInicial();
+      return false; // Retornar false para não continuar o fluxo atual
+    }
     return true;
   } else {
     enviarComandoDue("ERRO", "Erro pontos");
-    delay(2000);
+    delayComLeituraCartao(2000);
     return false;
   }
 }
@@ -446,7 +492,7 @@ bool mostrarResultadoReal(String pergunta_id){
   if(code!=200){
     enviarComandoDue("ERRO", "Falha score");
     http.end();
-    delay(2000);
+    delayComLeituraCartao(2000);
     return false;
   }
   String payload = http.getString();
@@ -454,14 +500,18 @@ bool mostrarResultadoReal(String pergunta_id){
   DynamicJsonDocument doc(512);
   if(deserializeJson(doc,payload)){
     enviarComandoDue("ERRO", "Falha score");
-    delay(2000);
+    delayComLeituraCartao(2000);
     return false;
   }
   float sim = doc["sim"];
   float nao = doc["nao"];
   enviarComandoDue("RESULTADO", String((int)sim), String((int)nao));
   somResultadoExibido(); // 🔊 Som de resultado exibido
-  delay(2500);
+  if(delayComLeituraCartao(2500)) {
+    // Cartão detectado durante delay, voltar ao início
+    mostrarTelaInicial();
+    return false; // Retornar false para não continuar o fluxo atual
+  }
   return true;
 }
 
@@ -478,7 +528,7 @@ bool obterUltimaPergunta(){
   if(code!=200){
     enviarComandoDue("ERRO", "Erro pergunta");
     http.end();
-    delay(2000);
+    delayComLeituraCartao(2000);
     return false;
   }
   String payload = http.getString();
@@ -486,7 +536,7 @@ bool obterUltimaPergunta(){
   DynamicJsonDocument doc(1024);
   if(deserializeJson(doc,payload)){
     enviarComandoDue("ERRO", "Erro JSON");
-    delay(2000);
+    delayComLeituraCartao(2000);
     return false;
   }
   pergunta = doc["texto"].as<String>();
@@ -563,11 +613,21 @@ void loop(){
 
   switch(estado){
     case ESPERA_CARTAO:{
+      // Verificar intervalo mínimo entre detecções
+      unsigned long tempoAtual = millis();
+      if(tempoAtual - ultimaDetecaoCartao < INTERVALO_MINIMO_CARTAO) {
+        // Ainda não passou o intervalo mínimo, não verificar cartões
+        delay(100);
+        break;
+      }
+      
       // Ler SIM primeiro (prioridade)
       String uidSim = lerCartao(rfidSim);
       if(uidSim!="") {
         usuarioUID=uidSim;
         Serial.println("Cartao SIM detectado: " + usuarioUID);
+        ultimaDetecaoCartao = millis(); // Registrar momento da detecção
+        delay(500); // Delay para estabilizar
         enviarComandoDue("VERIFICANDO", usuarioUID.substring(0,16));
         estado = VERIFICANDO_USUARIO;
       } else {
@@ -577,6 +637,8 @@ void loop(){
         if(uidNao!="") {
           usuarioUID=uidNao;
           Serial.println("Cartao NAO detectado: " + usuarioUID);
+          ultimaDetecaoCartao = millis(); // Registrar momento da detecção
+          delay(500); // Delay para estabilizar
           enviarComandoDue("VERIFICANDO", usuarioUID.substring(0,16));
           estado = VERIFICANDO_USUARIO;
         }
@@ -606,11 +668,21 @@ void loop(){
     }
 
     case AGUARDANDO_CARTAO_APOS_HASH:{
+      // Verificar intervalo mínimo entre detecções
+      unsigned long tempoAtual = millis();
+      if(tempoAtual - ultimaDetecaoCartao < INTERVALO_MINIMO_CARTAO) {
+        // Ainda não passou o intervalo mínimo, não verificar cartões
+        delay(100);
+        break;
+      }
+      
       // Aguardar cartão em qualquer um dos leitores
       // Ler SIM primeiro (prioridade)
       String cartaoSim = lerCartao(rfidSim);
       if(cartaoSim != ""){
         Serial.println("Cartao SIM confirmado! Continuando...");
+        ultimaDetecaoCartao = millis(); // Registrar momento da detecção
+        delay(500); // Delay para estabilizar
         estado = PERGUNTA;
       } else {
         // Só ler NÃO se SIM não detectou nada
@@ -618,6 +690,8 @@ void loop(){
         String cartaoNao = lerCartao(rfidNao);
         if(cartaoNao != ""){
           Serial.println("Cartao NAO confirmado! Continuando...");
+          ultimaDetecaoCartao = millis(); // Registrar momento da detecção
+          delay(500); // Delay para estabilizar
           estado = PERGUNTA;
         }
       }
@@ -628,7 +702,10 @@ void loop(){
       if(!cadastrarUsuario(usuarioUID)){
         tratarErro("Cadastro");
       } else {
-        atualizarPontuacao(usuarioUID, 10);
+        if(!atualizarPontuacao(usuarioUID, 10)){
+          // Se atualizarPontuacao retornou false por cartão detectado, já voltou ao início
+          break;
+        }
         estado = PERGUNTA;
       }
       break;
@@ -642,10 +719,19 @@ void loop(){
     }
 
     case AGUARDANDO_VOTO:{
+      // Verificar intervalo mínimo entre detecções
+      unsigned long tempoAtual = millis();
+      if(tempoAtual - ultimaDetecaoCartao < INTERVALO_MINIMO_CARTAO) {
+        // Ainda não passou o intervalo mínimo, não verificar cartões
+        delay(100);
+        break;
+      }
+      
       // Ler SIM primeiro (prioridade)
       String cartaoSim = lerCartao(rfidSim);
       if(cartaoSim != "") {
         voto = "sim";
+        ultimaDetecaoCartao = millis(); // Registrar momento da detecção
         somConfirmacaoSim(); // 🔊 LED + som juntos (SIM)
       } else {
         // Só ler NÃO se SIM não detectou nada
@@ -653,6 +739,7 @@ void loop(){
         String cartaoNao = lerCartao(rfidNao);
         if(cartaoNao != "") {
           voto = "nao";
+          ultimaDetecaoCartao = millis(); // Registrar momento da detecção
           somConfirmacaoNao(); // 🔊 LED + som juntos (NÃO)
         }
       }
@@ -676,12 +763,24 @@ void loop(){
             } else {
               enviarComandoDue("VOTO_ATUALIZADO", String(pontuacaoAtual));
             }
-            delay(2000);
+            if(delayComLeituraCartao(2000)) {
+              // Cartão detectado durante delay, voltar ao início
+              mostrarTelaInicial();
+              voto = "";
+              usuarioUID = "";
+              return; // Sair do case
+            }
           }
         }
 
         somUrna();
-        delay(1000);
+        if(delayComLeituraCartao(1000)) {
+          // Cartão detectado durante delay, voltar ao início
+          mostrarTelaInicial();
+          voto = "";
+          usuarioUID = "";
+          return; // Sair do case
+        }
         apagarLeds();
       }
       break;
@@ -693,7 +792,14 @@ void loop(){
       } else {
         // Exibir QR Code como última tela (permanece por muito tempo)
         enviarComandoDue("QRCODE");
-        delay(20000); // QR Code permanece por 20 segundos (última tela)
+        if(delayComLeituraCartao(20000)) {
+          // Cartão detectado durante delay, voltar ao início imediatamente
+          mostrarTelaInicial();
+          voto="";
+          usuarioUID="";
+          return; // Sair do case
+        }
+        // Delay completo, voltar ao início normalmente
         mostrarTelaInicial();
         voto="";
         usuarioUID="";
